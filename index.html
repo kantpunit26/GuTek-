@@ -1,0 +1,1490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GuTek - Clinical Nutrition AI</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- ThreeJS (Loaded Early for reliability) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <!-- Import Maps for React, ReactDOM, Firebase, and Lucide Icons -->
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.344.0?deps=react@18.2.0",
+        "firebase/app": "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"
+      }
+    }
+    </script>
+
+    <!-- Babel for in-browser JSX compilation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-neutral-900 text-white">
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module" data-presets="react">
+        import React, { useState, useEffect, useRef } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import { 
+          Activity, FileText, ShieldCheck, AlertCircle, ChevronRight, Leaf, 
+          Dna, Microscope, Clock, Download, CheckCircle, X, FilePlus, ArrowRight, 
+          Stethoscope, Database, Lock, HeartPulse, Menu, Home, MessageCircle, 
+          Mail, LogIn, Send, Bot, User, Sun, Moon, Monitor, Share2, Dumbbell, 
+          Target, Wallet, Cpu, ArrowDown, Carrot, Apple, Zap, Calendar, Check, 
+          Mic, MicOff, MapPin, Navigation, Search, Sunrise, Sunset, 
+          Moon as MoonIcon, ChefHat, ShoppingBag, Info, LifeBuoy, Sparkles, 
+          Thermometer, Droplet 
+        } from 'lucide-react';
+        
+        import { initializeApp } from 'firebase/app';
+        import { 
+          getAuth, onAuthStateChanged, signInAnonymously, signInWithCustomToken 
+        } from 'firebase/auth';
+        import { 
+          getFirestore, collection, addDoc, query, onSnapshot, 
+          serverTimestamp, doc, setDoc, updateDoc, increment, getDoc 
+        } from 'firebase/firestore';
+
+        // --- Firebase Configuration & Initialization ---
+        let firebaseConfig = {
+            apiKey: "dummy", authDomain: "dummy.firebaseapp.com", projectId: "dummy", storageBucket: "dummy.appspot.com", messagingSenderId: "123", appId: "123"
+        };
+        try {
+            if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                firebaseConfig = JSON.parse(__firebase_config);
+            }
+        } catch(e) {
+            console.error("Config parse error", e);
+        }
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // --- Gemini API Helper ---
+        const callGemini = async (prompt, systemPrompt = "You are GuTek, a clinical nutrition AI assistant. Answer briefly and professionally.") => {
+            const apiKey = ""; // API key is injected server-side
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: { parts: [{ text: systemPrompt }] }
+            };
+
+            const delays = [1000, 2000, 4000, 8000, 16000];
+            for (let i = 0; i <= delays.length; i++) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    
+                    if (!response.ok) {
+                        if (i < delays.length) {
+                            await new Promise(resolve => setTimeout(resolve, delays[i]));
+                            continue;
+                        }
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    return data.candidates?.[0]?.content?.parts?.[0]?.text || "System currently unavailable.";
+                } catch (e) {
+                    if (i < delays.length) {
+                        await new Promise(resolve => setTimeout(resolve, delays[i]));
+                    } else {
+                        return "Connection error. Please try again.";
+                    }
+                }
+            }
+            return "Connection error. Please try again.";
+        };
+
+        // --- Mock Data ---
+        const ENTEROTYPES = {
+          BACTEROIDES: {
+            name: 'Type 1: Bacteroides',
+            description: 'High efficiency in protein/fat metabolism. Risk of pro-inflammatory markers if fiber is low.',
+            risks: ["Inflammatory Bowel Disease (IBD)", "Colorectal Cancer (High Fat Context)", "Metabolic Syndrome", "Celiac Disease Association"],
+            biomarkers: [
+                { name: "Short-Chain Fatty Acids", status: "Low", value: "12.4 mmol/kg", unit: "mmol/kg" },
+                { name: "Zonulin (Gut Permeability)", status: "Elevated", value: "48.2 ng/mL", unit: "ng/mL" },
+                { name: "C-Reactive Protein", status: "Normal", value: "1.1 mg/L", unit: "mg/L" }
+            ],
+            recommendations: {
+                increase: [
+                  { item: 'Resistant Starch', amount: '45g daily', detail: 'Fuels butyrate production.' },
+                  { item: 'Oats', amount: '1 cup cooked', detail: 'Modulates cholesterol.' }
+                ],
+                vegetables: [{ item: 'Jerusalem Artichokes', amount: '1/2 cup', detail: 'Inulin source.' }, { item: 'Asparagus', amount: '6-8 spears', detail: 'Prebiotic FOS.' }],
+                fruits: [{ item: 'Raspberries', amount: '1 cup', detail: 'High fiber.' }, { item: 'Green Banana', amount: '1 small', detail: 'Resistant starch source.' }],
+                produceStrategy: "Focus on cooling starchy vegetables (potatoes/rice) for 24h to increase resistant starch content. Rotate colors daily.",
+                avoid: [{ item: 'Red Meat', detail: 'Limit to 2x/week to reduce TMAO.' }, { item: 'Refined Sugar', detail: 'Causes immediate dysbiosis spikes.' }],
+                lifestyle: [{ item: 'Intermittent Fasting', amount: '14:10', detail: 'Promotes migratory motor complex.' }, { item: 'Resistance Training', amount: '3x/week', detail: 'Improves metabolic load.' }],
+                supplements: [{ item: 'Inulin Fiber', detail: 'Prebiotic support.' }, { item: 'Bifidobacterium', detail: 'Keystone strain.' }],
+                micronutrients: [{ item: 'Vitamin B12', detail: 'Support bacterial synthesis.' }, { item: 'Magnesium', detail: 'Enzymatic cofactor.' }]
+            },
+            recipes: [
+                { name: "Bone Broth", time: "12 hrs", ingredients: ["Bones", "Vinegar", "Veg"], instructions: "Simmer long for glutamine release." },
+                { name: "Potato Salad", time: "30 mins", ingredients: ["Cooled Potatoes", "Dill"], instructions: "Cook then cool 24hrs for resistant starch." }
+            ],
+            dailyRoutine: { morning: "Omelet & Spinach", midMorning: "Green Banana", lunch: "Quinoa Bowl", afternoon: "Walnuts", dinner: "Salmon & Asparagus", night: "Chamomile Tea" },
+            mealPlan: "Protocol B: Mediterranean Modified",
+            chartData: [{ label: 'Bacteroides', value: 45 }, { label: 'Firmicutes', value: 30 }, { label: 'Prevotella', value: 10 }, { label: 'Other', value: 15 }]
+          },
+          PREVOTELLA: {
+            name: 'Type 2: Prevotella',
+            description: 'High capacity for fiber fermentation. Associated with agrarian diets.',
+            risks: ["Rheumatoid Arthritis", "Insulin Resistance (Strain Dependent)", "Hypertension", "Periodontal Disease Links"],
+            biomarkers: [
+                { name: "Fecal Butyrate", status: "Optimal", value: "22.1 mmol/kg", unit: "mmol/kg" },
+                { name: "LPS-Binding Protein", status: "Elevated", value: "18.5 ug/mL", unit: "ug/mL" },
+                { name: "Secretory IgA", status: "Low", value: "450 ug/g", unit: "ug/g" }
+            ],
+            recommendations: {
+                increase: [{ item: 'Plant Protein', amount: '150g/meal', detail: 'Essential amino acids.' }, { item: 'Fermented Foods', amount: '2 servings', detail: 'Enhances diversity.' }],
+                vegetables: [{ item: 'Sweet Potato', amount: '1 medium', detail: 'Complex carbs source.' }, { item: 'Spinach', amount: '2 cups', detail: 'High magnesium content.' }],
+                fruits: [{ item: 'Apples', amount: '1 medium', detail: 'Rich in Pectin.' }, { item: 'Papaya', amount: '1 cup', detail: 'Digestive enzymes.' }],
+                produceStrategy: "Emphasize raw consumption where tolerated. Include digestive bitters before meals to aid breakdown.",
+                avoid: [{ item: 'Refined Carbs', detail: 'Triggers rapid glycemic spikes.' }, { item: 'Gluten', detail: 'If sensitive (molecular mimicry).' }],
+                lifestyle: [{ item: 'Cardio', amount: '150m/wk', detail: 'Supports microbial diversity.' }, { item: 'Mindful Eating', amount: 'Chew 20x', detail: 'Mechanical breakdown aid.' }],
+                supplements: [{ item: 'Methyl B12', detail: 'Vegetarian support.' }, { item: 'Vitamin D3', detail: 'Immune modulation.' }],
+                micronutrients: [{ item: 'Iron', detail: 'Plant bioavailability focus.' }, { item: 'Zinc', detail: 'Barrier integrity.' }]
+            },
+            recipes: [
+                { name: "Lentil Dahl", time: "25 mins", ingredients: ["Lentils", "Coconut Milk"], instructions: "Simmer until soft." },
+                { name: "Buckwheat Cakes", time: "15 mins", ingredients: ["Buckwheat", "Yeast"], instructions: "Ferment batter overnight." }
+            ],
+            dailyRoutine: { morning: "Oats & Chia", midMorning: "Apple", lunch: "Lentil Soup", afternoon: "Carrots", dinner: "Tempeh Stir-fry", night: "Peppermint Tea" },
+            mealPlan: "Protocol P: Plant-Forward",
+            chartData: [{ label: 'Prevotella', value: 55 }, { label: 'Bacteroides', value: 15 }, { label: 'Firmicutes', value: 20 }, { label: 'Other', value: 10 }]
+          },
+          RUMINOCOCCUS: {
+            name: 'Type 3: Ruminococcus',
+            description: 'Mucin-degrading bacteria dominant. Requires careful fiber modulation.',
+            risks: ["Irritable Bowel Syndrome (IBS)", "Crohn's Disease", "Nutrient Malabsorption", "Kidney Stone Formation"],
+            biomarkers: [
+                { name: "Mucin MUC2", status: "Degraded", value: "Low", unit: "Index" },
+                { name: "Calprotectin", status: "Elevated", value: "110 mg/kg", unit: "mg/kg" },
+                { name: "Serum Ferritin", status: "Low", value: "20 ng/mL", unit: "ng/mL" }
+            ],
+            recommendations: {
+                increase: [{ item: 'Polyphenols', amount: '2 cups', detail: 'Potent antioxidant.' }, { item: 'Collagen', amount: '20g', detail: 'Supports gut lining.' }],
+                vegetables: [{ item: 'Zucchini', amount: '1 cup', detail: 'Low roughage/fiber.' }, { item: 'Carrots', amount: '1 cup', detail: 'Well-cooked only.' }],
+                fruits: [{ item: 'Blueberries', amount: '1/2 cup', detail: 'High polyphenols.' }, { item: 'Cantaloupe', amount: '1 cup', detail: 'Low FODMAP choice.' }],
+                produceStrategy: "All vegetables must be peeled and cooked until fork-tender. Avoid raw roughage entirely for 4 weeks.",
+                avoid: [{ item: 'Raw Brassicas', detail: 'Hard to digest sulfur compounds.' }, { item: 'Alcohol', detail: 'Direct mucus irritant.' }],
+                lifestyle: [{ item: 'Sleep Hygiene', amount: '8 hrs', detail: 'Critical for epithelial repair.' }, { item: 'Hydration', amount: '3 Liters', detail: 'Maintain mucosal layer.' }],
+                supplements: [{ item: 'L-Glutamine', detail: 'Primary enterocyte fuel.' }, { item: 'Zinc Carnosine', detail: 'Mucosa support.' }],
+                micronutrients: [{ item: 'Vitamin A', detail: 'Secretory IgA synthesis.' }, { item: 'Selenium', detail: 'Manage oxidative stress.' }]
+            },
+            recipes: [
+                { name: "Chicken Soup", time: "45 mins", ingredients: ["Chicken", "Ginger"], instructions: "Boil until tender." },
+                { name: "Stewed Pears", time: "20 mins", ingredients: ["Pears", "Cinnamon"], instructions: "Simmer gently." }
+            ],
+            dailyRoutine: { morning: "Collagen Smoothie", midMorning: "Stewed Pears", lunch: "Squash Soup", afternoon: "Bone Broth", dinner: "White Fish", night: "Lemon Balm Tea" },
+            mealPlan: "Protocol R: Gut-Restorative",
+            chartData: [{ label: 'Ruminococcus', value: 40 }, { label: 'Firmicutes', value: 35 }, { label: 'Bacteroides', value: 15 }, { label: 'Other', value: 10 }]
+          },
+          AKKERMANSIA: {
+            name: 'Type 4: Akkermansia',
+            description: 'Mucin-loving specialist associated with leanness and metabolic flexibility. Thrives on fasting and polyphenols.',
+            risks: ["Metabolic Health (if low)", "Low Mucosal Thickness", "Autoimmune Flares", "Neuro-inflammation"],
+            biomarkers: [
+                { name: "GLP-1 Response", status: "Variable", value: "Medium", unit: "pmol/L" },
+                { name: "Serum Acetate", status: "Optimal", value: "High", unit: "mmol/L" },
+                { name: "Fasting Insulin", status: "Low", value: "4.5 uIU/mL", unit: "uIU/mL" }
+            ],
+            recommendations: {
+                increase: [{ item: 'Red Polyphenols', amount: '1 cup', detail: 'Cranberry/Pomegranate.' }, { item: 'Omega-3', amount: '2g daily', detail: 'Anti-inflammatory.' }],
+                vegetables: [{ item: 'Red Onions', amount: '1/2 raw', detail: 'Quercetin source.' }, { item: 'Radish', amount: '1 cup', detail: 'Bioactive compounds.' }],
+                fruits: [{ item: 'Pomegranate', amount: '1/2 cup', detail: 'Ellagic acid.' }, { item: 'Concord Grapes', amount: '1 cup', detail: 'Resveratrol.' }],
+                produceStrategy: "Focus on deep red, purple, and blue pigments (Anthocyanins) which specifically feed Akkermansia muciniphila.",
+                avoid: [{ item: 'Snacking', detail: 'Inhibits gut rest/regeneration.' }, { item: 'Emulsifiers', detail: 'Strips mucus layer.' }],
+                lifestyle: [{ item: 'Intermittent Fasting', amount: '16:8', detail: 'Essential for Akkermansia growth.' }, { item: 'Cold Exposure', amount: '5 mins', detail: 'Activates brown fat.' }],
+                supplements: [{ item: 'Green Tea Extract', detail: 'EGCG Polypenols.' }, { item: 'Fish Oil', detail: 'Membrane fluidity.' }],
+                micronutrients: [{ item: 'Chromium', detail: 'Insulin sensitivity.' }, { item: 'Vitamin D3', detail: 'Critical regulation.' }]
+            },
+            recipes: [
+                { name: "Berry Crisp", time: "25 mins", ingredients: ["Mixed Berries", "Walnuts"], instructions: "Bake with nut crumble." },
+                { name: "Pomegranate Salad", time: "10 mins", ingredients: ["Arugula", "Seeds"], instructions: "Toss with olive oil." }
+            ],
+            dailyRoutine: { morning: "Black Coffee (Fasting)", midMorning: "Fast until 12pm", lunch: "Salmon Salad", afternoon: "Green Tea", dinner: "Steak & Onions", night: "Resveratrol Sup" },
+            mealPlan: "Protocol A: Metabolic-Flex",
+            chartData: [{ label: 'Akkermansia', value: 35 }, { label: 'Bacteroides', value: 30 }, { label: 'Firmicutes', value: 20 }, { label: 'Other', value: 15 }]
+          },
+          PROTEOBACTERIA: {
+            name: 'Type 5: Proteobacteria',
+            description: 'Dysbiotic profile often triggered by stress, antibiotics, or high sugar. Characterized by inflammation.',
+            risks: ["SIBO (Bacterial Overgrowth)", "Systemic Inflammation", "Anxiety/Depression", "Fatigue Syndrome"],
+            biomarkers: [
+                { name: "Lipopolysaccharides", status: "High", value: "Critical", unit: "ng/mL" },
+                { name: "Histamine", status: "Elevated", value: "High", unit: "nM" },
+                { name: "Zonulin", status: "High", value: "Leaky", unit: "ng/mL" }
+            ],
+            recommendations: {
+                increase: [{ item: 'Antimicrobials', amount: 'Daily', detail: 'Garlic, Oregano.' }, { item: 'Low FODMAP', amount: 'Strict', detail: 'Starve overgrowth.' }],
+                vegetables: [{ item: 'Carrots', amount: 'Cooked', detail: 'Easy digestion.' }, { item: 'Green Beans', amount: '1/2 cup', detail: 'Low fermentability.' }],
+                fruits: [{ item: 'Kiwi', amount: '2 daily', detail: 'Gentle fiber.' }, { item: 'Strawberries', amount: 'Low qty', detail: 'Low sugar.' }],
+                produceStrategy: "Strictly limit fermentable fibers (FODMAPs) for 6 weeks to starve pathogenic overgrowth. Cook all produce thoroughly.",
+                avoid: [{ item: 'Sugar/Fructose', detail: 'Feeds pathogens directly.' }, { item: 'Probiotics', detail: 'May worsen SIBO initially.' }],
+                lifestyle: [{ item: 'Vagus Nerve', amount: 'Daily', detail: 'Humming/Gargling.' }, { item: 'Stress Mgmt', amount: 'High', detail: 'Cortisol management.' }],
+                supplements: [{ item: 'Oregano Oil', detail: 'Natural antimicrobial.' }, { item: 'Berberine', detail: 'Gut modulation.' }],
+                micronutrients: [{ item: 'B-Complex', detail: 'Support energy.' }, { item: 'Magnesium', detail: 'Motility support.' }]
+            },
+            recipes: [
+                { name: "Lemon Chicken", time: "30 mins", ingredients: ["Chicken", "Lemon", "Oregano"], instructions: "Bake with herbs." },
+                { name: "Zucchini Noodles", time: "10 mins", ingredients: ["Zucchini", "Olive Oil"], instructions: "Sauté lightly." }
+            ],
+            dailyRoutine: { morning: "Warm Water/Lemon", midMorning: "Walnuts", lunch: "Chicken Salad", afternoon: "Ginger Tea", dinner: "White Fish & Beans", night: "Magnesium" },
+            mealPlan: "Protocol D: Dysbiosis-Clear",
+            chartData: [{ label: 'Proteobacteria', value: 45 }, { label: 'Firmicutes', value: 20 }, { label: 'Bacteroides', value: 15 }, { label: 'Other', value: 20 }]
+          }
+        };
+
+        const EXPERTS_LIST = [
+          { id: 1, name: "Dr. Punit", role: "Lead Microbiologist", speciality: "Dysbiosis", image: "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?auto=format&fit=crop&w=300&q=80" },
+          { id: 2, name: "Dr. Lakshay", role: "Clinical Nutritionist", speciality: "Metabolic Syndrome", image: "https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&w=300&q=80" },
+          { id: 3, name: "Dr. Vishwa", role: "Gastroenterologist", speciality: "IBS Management", image: "https://images.unsplash.com/photo-1559839734-2b71ea197ec2?auto=format&fit=crop&w=300&q=80" }
+        ];
+
+        const CLINICS_LIST = [
+          { id: 1, name: "BioGenetics Lab", address: "124 Science Park Dr", distance: "2.4 km", rating: 4.8, type: "Premium", available: true },
+          { id: 2, name: "City Health", address: "45 Downtown Ave", distance: "5.1 km", rating: 4.5, type: "Standard", available: true },
+          { id: 3, name: "UniMed Research", address: "88 University Rd", distance: "8.2 km", rating: 4.9, type: "Academic", available: false },
+          { id: 4, name: "RapidTest Clinic", address: "12 Westside Mall", distance: "12.5 km", rating: 4.2, type: "Collection", available: true },
+          { id: 5, name: "Northside Medical", address: "560 North Blvd", distance: "15.3 km", rating: 4.6, type: "Standard", available: true },
+        ];
+
+        const RESEARCH_PAPERS = [
+          {
+            id: 1, title: "Microbiome Modulation in Metabolic Syndrome: A Longitudinal Study", journal: "Clinical Nutrition Journal", date: "Oct 15, 2024",
+            authors: "Dr. Punit, Dr. Vishwa, et al.", abstract: "This study investigates the efficacy of targeted resistant starch interventions in shifting Enterotype 1 profiles towards higher diversity indices over a 12-week period.", tags: ["Metabolism", "Prebiotics", "Clinical Trial"]
+          },
+          {
+            id: 2, title: "The Prevotella-Agrarian Paradox: Insulin Sensitivity Analysis", journal: "Gut Microbes", date: "Sep 02, 2024",
+            authors: "Dr. Lakshay, Research Team Alpha", abstract: "Analyzing the correlation between high-fiber agrarian diets and insulin receptor sensitivity in Type 2 Prevotella dominant cohorts.", tags: ["Insulin", "Fiber", "Prevotella"]
+          },
+          {
+            id: 3, title: "Next-Gen Sequencing vs. Traditional Culture: Diagnostic Accuracy", journal: "Journal of Precision Medicine", date: "Aug 10, 2024",
+            authors: "GuTek Clinical Labs", abstract: "A comparative analysis of 16S rRNA sequencing versus standard culture methods in identifying rare pathogenic strains in IBS patients.", tags: ["Diagnostics", "Genomics", "Methodology"]
+          },
+          {
+            id: 4, title: "Psychobiotics: The Gut-Brain Axis in Anxiety Disorders", journal: "Neuro-Gastroenterology Review", date: "Jul 22, 2024",
+            authors: "Dr. Bhargavi", abstract: "Exploring the role of Lactobacillus rhamnosus supplementation in modulating cortisol levels and subjective anxiety scores.", tags: ["Mental Health", "Probiotics", "Gut-Brain Axis"]
+          }
+        ];
+
+        // --- 3D Component ---
+        const HumanSystem3D = ({ theme }) => {
+          const mountRef = useRef(null);
+          useEffect(() => {
+            if (!mountRef.current || !window.THREE) return;
+            const THREE = window.THREE;
+            
+            let animationFrameId;
+            const width = mountRef.current.clientWidth;
+            const height = mountRef.current.clientHeight;
+
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+            camera.position.z = 22;
+
+            const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+            renderer.setSize(width, height);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            mountRef.current.appendChild(renderer.domElement);
+
+            const isDark = theme === 'dark';
+            const accentColor = isDark ? 0x2dd4bf : 0x0f766e; 
+
+            const ambientLight = new THREE.AmbientLight(isDark ? 0xffffff : 0x111827, 0.5);
+            scene.add(ambientLight);
+
+            const pointLight = new THREE.PointLight(accentColor, 2, 50);
+            pointLight.position.set(10, 10, 10);
+            scene.add(pointLight);
+            
+            const systemGroup = new THREE.Group();
+            scene.add(systemGroup);
+
+            const material = new THREE.MeshPhongMaterial({
+              color: accentColor,
+              shininess: 100,
+              wireframe: false,
+              transparent: true,
+              opacity: 0.9
+            });
+
+            const geo = new THREE.IcosahedronGeometry(4, 1);
+            const mesh = new THREE.Mesh(geo, material);
+            systemGroup.add(mesh);
+
+            const ringGeo = new THREE.TorusGeometry(6, 0.05, 16, 100);
+            const ringMat = new THREE.MeshBasicMaterial({ color: isDark ? 0xffffff : 0x000000, transparent: true, opacity: 0.3 });
+            const ring = new THREE.Mesh(ringGeo, ringMat);
+            ring.rotation.x = Math.PI / 2;
+            systemGroup.add(ring);
+
+            const animate = () => {
+              animationFrameId = requestAnimationFrame(animate);
+              systemGroup.rotation.y += 0.005;
+              systemGroup.rotation.x += 0.002;
+              mesh.scale.setScalar(1 + Math.sin(Date.now() * 0.001) * 0.05);
+              renderer.render(scene, camera);
+            };
+            animate();
+
+            const handleResize = () => {
+                if(mountRef.current && renderer && camera) {
+                   const width = mountRef.current.clientWidth;
+                   const height = mountRef.current.clientHeight;
+                   camera.aspect = width / height;
+                   camera.updateProjectionMatrix();
+                   renderer.setSize(width, height);
+                }
+            };
+            window.addEventListener('resize', handleResize);
+
+            return () => {
+              window.removeEventListener('resize', handleResize);
+              if(mountRef.current && renderer) mountRef.current.removeChild(renderer.domElement);
+              cancelAnimationFrame(animationFrameId);
+            };
+          }, [theme]);
+
+          return <div ref={mountRef} className="w-full h-full" />;
+        };
+
+        // --- UI Components ---
+        const AmberLoader = ({ onComplete }) => {
+          const [progress, setProgress] = useState(0);
+          useEffect(() => {
+            const timer = setInterval(() => {
+              setProgress(prev => {
+                if (prev >= 100) {
+                  clearInterval(timer);
+                  setTimeout(onComplete, 500);
+                  return 100;
+                }
+                return prev + 2;
+              });
+            }, 30);
+            return () => clearInterval(timer);
+          }, [onComplete]);
+
+          return (
+            <div className="fixed inset-0 z-50 bg-black flex items-center justify-center">
+              <div className="relative">
+                <h1 className="text-[120px] font-bold text-neutral-900 leading-none tracking-tighter select-none">GUTEK</h1>
+                <div className="absolute inset-0 overflow-hidden transition-all duration-75 ease-linear" style={{ width: `${progress}%` }}>
+                  <h1 className="text-[120px] font-bold text-white leading-none tracking-tighter whitespace-nowrap">GUTEK</h1>
+                </div>
+                <div className="absolute top-0 right-0 h-full w-[2px] bg-white animate-pulse"></div>
+              </div>
+            </div>
+          );
+        };
+
+        const AmberToggle = ({ theme, toggle }) => (
+          <button onClick={toggle} className={`w-14 h-8 rounded-full p-1 transition-colors duration-300 relative ${theme === 'dark' ? 'bg-white/20' : 'bg-black/10'}`}>
+            <div className={`absolute top-1 w-6 h-6 rounded-full shadow-sm transition-all duration-300 flex items-center justify-center ${theme === 'dark' ? 'left-[calc(100%-28px)] bg-white text-black' : 'left-1 bg-white text-black'}`}>
+              {theme === 'dark' ? <Moon size={12} /> : <Sun size={12} />}
+            </div>
+          </button>
+        );
+
+        const AmberNav = ({ view, setView, theme, user }) => (
+          <nav className={`fixed top-0 w-full z-40 transition-colors duration-500 ${theme === 'dark' ? 'bg-black/90 text-white' : 'bg-white/90 text-black'} backdrop-blur-md shadow-sm`}>
+            <div className="max-w-[1400px] mx-auto px-6 h-20 flex items-center justify-between">
+              <div onClick={() => setView('home')} className="text-xl font-bold tracking-widest cursor-pointer flex-shrink-0">GUTEK</div>
+              
+              <div className="hidden md:flex gap-4 lg:gap-6 xl:gap-8 text-sm font-medium tracking-wide justify-center flex-1 px-4">
+                {['Home', 'Analyze', 'Consult', 'Clinics', 'History', 'Ask', 'Research', 'Contact'].map((item) => (
+                  <button key={item} onClick={() => setView(item.toLowerCase())} className={`hover:opacity-60 transition-opacity uppercase text-xs font-bold ${view === item.toLowerCase() ? 'opacity-100 border-b-2 border-current' : 'opacity-60'}`}>
+                    {item}
+                  </button>
+                ))}
+              </div>
+              
+              <div className="flex items-center gap-6 flex-shrink-0">
+                <button onClick={() => setView('ask')} className="hover:opacity-60 transition-opacity relative"><ShoppingBag size={18} /><span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full"></span></button>
+                <button onClick={() => setView('login')} className="flex items-center gap-2 hover:opacity-60 transition-opacity">
+                    <User size={18} />
+                    <span className="text-xs uppercase font-bold hidden md:block">{user && !user.isAnonymous ? 'Profile' : 'Login'}</span>
+                </button>
+              </div>
+            </div>
+          </nav>
+        );
+
+        const AmberGridItem = ({ title, subtitle, onClick, theme, icon: Icon }) => (
+          <div onClick={onClick} className={`group relative aspect-square flex flex-col justify-between p-8 cursor-pointer overflow-hidden transition-colors duration-500 ${theme === 'dark' ? 'bg-neutral-900 hover:bg-neutral-800' : 'bg-neutral-100 hover:bg-neutral-200'}`}>
+            <div className="z-10 transition-transform duration-500 group-hover:-translate-y-2">
+              <h3 className={`text-2xl font-light mb-2 ${theme === 'dark' ? 'text-white' : 'text-black'}`}>{title}</h3>
+              <p className={`text-sm opacity-60 font-medium ${theme === 'dark' ? 'text-white' : 'text-black'}`}>{subtitle}</p>
+            </div>
+            <div className="absolute inset-0 flex items-center justify-center opacity-80 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700">
+               <div className={`w-32 h-32 rounded-full blur-2xl opacity-40 ${theme === 'dark' ? 'bg-teal-500' : 'bg-teal-300'}`}></div>
+               {Icon && <Icon size={64} className={`absolute opacity-20 group-hover:opacity-40 transition-opacity ${theme === 'dark' ? 'text-teal-200' : 'text-teal-800'}`}/>}
+            </div>
+            <div className={`z-10 flex justify-between items-end opacity-0 group-hover:opacity-100 transition-opacity duration-500 translate-y-4 group-hover:translate-y-0 ${theme === 'dark' ? 'text-white' : 'text-black'}`}>
+               <span className="text-xs uppercase tracking-widest font-bold">View</span>
+               <ArrowRight size={18} />
+            </div>
+          </div>
+        );
+
+        const AmberInput = ({ label, value, onChange, placeholder, theme, type = "text", rows }) => (
+          <div>
+            <label className={`text-xs uppercase tracking-wider font-bold mb-2 block ${theme === 'dark' ? 'text-neutral-400' : 'text-neutral-500'}`}>{label}</label>
+            {type === 'textarea' ? (
+              <textarea 
+                value={value} 
+                onChange={onChange}
+                rows={rows || 3}
+                className={`w-full bg-transparent border-b p-3 outline-none transition-colors resize-none
+                  ${theme === 'dark' ? 'border-neutral-700 focus:border-white text-white placeholder-neutral-600' : 'border-neutral-300 focus:border-black text-black placeholder-neutral-400'}`}
+                placeholder={placeholder}
+              />
+            ) : (
+              <input 
+                type={type}
+                value={value} 
+                onChange={onChange}
+                className={`w-full bg-transparent border-b p-3 outline-none transition-colors 
+                  ${theme === 'dark' ? 'border-neutral-700 focus:border-white text-white placeholder-neutral-600' : 'border-neutral-300 focus:border-black text-black placeholder-neutral-400'}`}
+                placeholder={placeholder}
+              />
+            )}
+          </div>
+        );
+
+        const AmberTaxaChart = ({ data, theme }) => (
+            <div className="w-full">
+                <div className="h-2 w-full flex rounded-full overflow-hidden mb-4">
+                    {data.map((item, i) => (
+                        <div key={i} style={{ width: `${item.value}%`, backgroundColor: i === 0 ? '#0d9488' : i === 1 ? '#2dd4bf' : i === 2 ? '#99f6e4' : '#e2e8f0' }}></div>
+                    ))}
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                    {data.map((item, i) => (
+                        <div key={i} className="flex justify-between items-center text-xs">
+                            <div className="flex items-center gap-2">
+                                <div className={`w-2 h-2 rounded-full`} style={{ backgroundColor: i === 0 ? '#0d9488' : i === 1 ? '#2dd4bf' : i === 2 ? '#99f6e4' : '#e2e8f0' }}></div>
+                                <span className={`font-medium ${theme === 'dark' ? 'text-neutral-300' : 'text-neutral-700'}`}>{item.label}</span>
+                            </div>
+                            <span className={`font-mono font-bold ${theme === 'dark' ? 'text-neutral-400' : 'text-neutral-600'}`}>{item.value}%</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+
+        const AmberFlowStep = ({ number, icon: Icon, title, desc, last = false, theme }) => (
+          <div className="relative flex flex-col items-center flex-1 group">
+            <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 transition-all duration-500 border ${theme === 'dark' ? 'border-neutral-800 bg-neutral-900 group-hover:border-teal-500 group-hover:text-teal-500' : 'border-neutral-200 bg-white group-hover:border-teal-600 group-hover:text-teal-600'}`}>
+              <Icon size={24} />
+            </div>
+            <div className="text-center px-2">
+              <div className={`text-[10px] font-bold uppercase tracking-widest mb-2 opacity-50 ${theme === 'dark' ? 'text-white' : 'text-black'}`}>Step 0{number}</div>
+              <h3 className={`text-sm font-medium mb-1 ${theme === 'dark' ? 'text-white' : 'text-black'}`}>{title}</h3>
+              <p className={`text-[10px] opacity-60 leading-relaxed ${theme === 'dark' ? 'text-white' : 'text-black'}`}>{desc}</p>
+            </div>
+            {!last && (
+              <div className={`hidden md:block absolute top-8 left-[60%] w-[calc(100%-40%)] h-[1px] -z-10 opacity-20 ${theme === 'dark' ? 'bg-white' : 'bg-black'}`}></div>
+            )}
+          </div>
+        );
+
+        // --- Major Views ---
+        const AmberReportDetail = ({ report, theme, showMessage }) => {
+            const [genRecipe, setGenRecipe] = useState(null);
+            const [loadingRecipe, setLoadingRecipe] = useState(false);
+
+            if (!report || !ENTEROTYPES[report.enterotypeKey]) return null;
+            const data = ENTEROTYPES[report.enterotypeKey];
+
+            const handleShare = async () => {
+                const textToShare = `GUTEK CLINICAL REPORT\nPatient: ${report.patientName}\nEnterotype: ${data.name}\nDiversity Score: ${report.diversityScore}\nProtocol: ${data.mealPlan}\n\nVisit GuTek for your full personalized analysis.`;
+                if (navigator.share) {
+                    try {
+                        await navigator.share({ title: 'GuTek Clinical Report', text: textToShare });
+                        showMessage('Shared successfully!');
+                    } catch (err) {
+                        if (err.name !== 'AbortError') copyToClipboard(textToShare);
+                    }
+                } else {
+                    copyToClipboard(textToShare);
+                }
+            };
+
+            const copyToClipboard = (text) => {
+                const textArea = document.createElement("textarea");
+                textArea.value = text;
+                textArea.style.position = "fixed";
+                textArea.style.left = "-9999px";
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    const successful = document.execCommand('copy');
+                    if(successful) showMessage('Report summary copied to clipboard!');
+                    else showMessage('Unable to copy report.', 'error');
+                } catch (err) {
+                    showMessage('Error copying to clipboard.', 'error');
+                }
+                document.body.removeChild(textArea);
+            };
+
+            const downloadProtocol = () => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                const width = 1200;
+                const height = 4000; 
+                canvas.width = width;
+                canvas.height = height;
+
+                const bg = '#ffffff';
+                const teal = '#0d9488';
+                const darkText = '#1f2937';
+                const lightText = '#4b5563';
+                const border = '#e5e7eb';
+                const redText = '#dc2626';
+
+                const wrapText = (text, x, y, maxWidth, lineHeight, font = '24px sans-serif', color = darkText) => {
+                    ctx.font = font;
+                    ctx.fillStyle = color;
+                    const words = text.split(' ');
+                    let line = '';
+                    for(let n = 0; n < words.length; n++) {
+                      const testLine = line + words[n] + ' ';
+                      const metrics = ctx.measureText(testLine);
+                      if (metrics.width > maxWidth && n > 0) {
+                        ctx.fillText(line, x, y);
+                        line = words[n] + ' ';
+                        y += lineHeight;
+                      } else {
+                        line = testLine;
+                      }
+                    }
+                    ctx.fillText(line, x, y);
+                    return y + lineHeight;
+                };
+
+                const drawSectionTitle = (title, y) => {
+                    ctx.fillStyle = teal; ctx.font = 'bold 32px sans-serif'; ctx.fillText(title, 60, y); return y + 50;
+                };
+                
+                const drawItem = (label, value, y, indent = 0) => {
+                     ctx.fillStyle = darkText; ctx.font = 'bold 24px sans-serif'; ctx.fillText(label, 60 + indent, y);
+                     if(value) {
+                         ctx.fillStyle = lightText; ctx.font = '24px sans-serif';
+                         const metrics = ctx.measureText(label);
+                         ctx.fillText(value, 60 + indent + metrics.width + 15, y);
+                     }
+                     return y + 40;
+                };
+
+                ctx.fillStyle = bg; ctx.fillRect(0, 0, width, height);
+                ctx.fillStyle = teal; ctx.fillRect(0, 0, width, 160);
+                ctx.fillStyle = '#ffffff'; ctx.font = 'bold 60px sans-serif'; ctx.fillText('GUTEK CLINICAL REPORT', 60, 100);
+                
+                let y = 240;
+                ctx.font = 'bold 28px sans-serif'; ctx.fillStyle = darkText; ctx.fillText(`Patient: ${report.patientName}`, 60, y);
+                ctx.fillText(`Date: ${new Date().toLocaleDateString()}`, 800, y); y += 40;
+                ctx.font = '24px sans-serif'; ctx.fillStyle = lightText; ctx.fillText(`ID: ${report.id || 'PENDING'}`, 60, y);
+                ctx.fillText(`Diversity Score: ${report.diversityScore}`, 800, y); y += 60;
+
+                ctx.strokeStyle = border; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(60, y); ctx.lineTo(width - 60, y); ctx.stroke(); y += 60;
+
+                y = drawSectionTitle(`1. Diagnosis: ${data.name}`, y);
+                y = wrapText(data.description, 60, y, width - 120, 40, '24px sans-serif', lightText); y += 40;
+
+                y = drawSectionTitle('2. Integrated Clinical Context & Biomarkers', y);
+                if(report.conditions) y = drawItem('Conditions:', report.conditions, y);
+                if(report.allergies) y = drawItem('Allergies:', report.allergies, y);
+                if(report.goals) y = drawItem('Goals:', report.goals, y);
+                y += 20;
+                ctx.fillStyle = teal; ctx.font = 'bold 26px sans-serif'; ctx.fillText('Biomarker Panel (Simulated):', 60, y); y += 40;
+                data.biomarkers.forEach(b => { y = drawItem(`• ${b.name}:`, `${b.value} (${b.status})`, y, 20); }); y += 40;
+
+                y = drawSectionTitle('3. Associated Health Risks & Disease', y);
+                ctx.fillStyle = '#fef2f2'; ctx.fillRect(60, y, width - 120, data.risks.length * 45 + 20);
+                ctx.strokeStyle = '#fecaca'; ctx.strokeRect(60, y, width - 120, data.risks.length * 45 + 20); y += 40;
+                data.risks.forEach(risk => { ctx.fillStyle = redText; ctx.font = 'bold 24px sans-serif'; ctx.fillText(`• ${risk}`, 90, y); y += 40; }); y += 40;
+
+                y = drawSectionTitle('4. Therapeutic Foods', y);
+                data.recommendations.increase.forEach(item => { y = drawItem(`• ${item.item}`, `(${item.amount}) - ${item.detail}`, y, 20); }); y += 20;
+                
+                y = drawSectionTitle('5. Contraindicated & Restricted Items', y);
+                data.recommendations.avoid.forEach(item => { y = drawItem(`• ${item.item}`, `- ${item.detail}`, y, 20); }); y += 40;
+
+                y = drawSectionTitle('6. Produce Prescription & Optimization', y);
+                y = wrapText(`Optimization Strategy: ${data.recommendations.produceStrategy}`, 60, y, width - 120, 35, 'italic 24px sans-serif', darkText); y += 30;
+                ctx.font = 'bold 26px sans-serif'; ctx.fillStyle = teal; ctx.fillText('Vegetables', 80, y); ctx.fillText('Fruits', 600, y); y += 40;
+                
+                const maxProduce = Math.max(data.recommendations.vegetables.length, data.recommendations.fruits.length);
+                for(let i=0; i<maxProduce; i++) {
+                     const v = data.recommendations.vegetables[i]; const f = data.recommendations.fruits[i];
+                     ctx.font = '24px sans-serif'; ctx.fillStyle = darkText;
+                     if(v) ctx.fillText(`• ${v.item} (${v.amount})`, 80, y);
+                     if(f) ctx.fillText(`• ${f.item} (${f.amount})`, 600, y);
+                     y += 40;
+                } y += 40;
+
+                y = drawSectionTitle('7. Daily Metabolic Schedule', y);
+                Object.entries(data.dailyRoutine).forEach(([time, meal]) => { y = drawItem(time.replace(/([A-Z])/g, ' $1').trim().toUpperCase() + ':', meal, y, 20); }); y += 40;
+
+                y = drawSectionTitle('8. Suggested Recipes', y);
+                data.recipes.forEach(r => {
+                     ctx.fillStyle = darkText; ctx.font = 'bold 24px sans-serif'; ctx.fillText(r.name, 80, y);
+                     ctx.font = 'italic 22px sans-serif'; ctx.fillStyle = lightText; ctx.fillText(`(${r.time})`, 400, y); y += 35;
+                     y = wrapText(r.instructions, 80, y, width - 160, 30, '22px sans-serif', lightText); y += 20;
+                     ctx.font = '20px sans-serif'; ctx.fillStyle = teal; ctx.fillText(`Ingredients: ${r.ingredients.join(', ')}`, 80, y); y += 50;
+                }); y += 20;
+
+                y = drawSectionTitle('9. Supplements & Micronutrients', y);
+                data.recommendations.supplements.forEach(s => { y = drawItem(`• ${s.item}`, s.detail, y, 20); });
+                 data.recommendations.micronutrients.forEach(m => { y = drawItem(`• ${m.item}`, m.detail, y, 20); }); y += 60;
+                
+                y = drawSectionTitle('10. Lifestyle & Behavioral Optimization', y);
+                data.recommendations.lifestyle.forEach(l => { y = drawItem(`• ${l.item}`, `${l.amount} - ${l.detail}`, y, 20); }); y += 60;
+
+                ctx.fillStyle = '#fef2f2'; ctx.fillRect(60, y, width - 120, 150); ctx.strokeStyle = '#fecaca'; ctx.strokeRect(60, y, width - 120, 150);
+                ctx.fillStyle = '#dc2626'; ctx.font = 'bold 24px sans-serif'; ctx.fillText('MEDICAL DISCLAIMER:', 90, y + 50);
+                ctx.fillStyle = '#7f1d1d'; ctx.font = '20px sans-serif';
+                y = wrapText('This report is generated by AI for informational purposes only and does not constitute medical advice. Please consult with a qualified healthcare professional or doctor before making significant changes to your diet, medication, or lifestyle.', 90, y + 90, width - 180, 30, '20px sans-serif', '#7f1d1d');
+
+                const finalCanvas = document.createElement('canvas');
+                finalCanvas.width = width; finalCanvas.height = y + 100;
+                const finalCtx = finalCanvas.getContext('2d'); finalCtx.drawImage(canvas, 0, 0);
+
+                const url = finalCanvas.toDataURL('image/png');
+                const a = document.createElement('a'); a.href = url; a.download = `GuTek_Full_Report_${report.patientName.replace(/\s+/g,'_')}.png`; a.click();
+            };
+
+            const handleGenRecipe = async () => {
+                setLoadingRecipe(true);
+                const prompt = `Create a unique, healthy recipe tailored for Enterotype: ${data.name}. 
+                The patient has these allergies/restrictions: ${report.allergies}. 
+                Their goal is: ${report.goals}. 
+                Please provide the response in this format: Recipe Name | Prep Time | Ingredients List (comma separated) | Brief Instructions. Keep it concise.`;
+                
+                const response = await callGemini(prompt, "You are a Michelin-star clinical nutritionist chef.");
+                const parts = response.split('|').map(s => s.trim());
+                if (parts.length >= 4) {
+                    setGenRecipe({ name: parts[0], time: parts[1], ingredients: parts[2].split(',').map(i => i.trim()), instructions: parts[3] });
+                } else {
+                     setGenRecipe({ name: "AI Chef Special", time: "20 mins", ingredients: ["Seasonal Greens", "Olive Oil", "Lean Protein"], instructions: response });
+                }
+                setLoadingRecipe(false);
+            };
+
+            return (
+                <div className="space-y-6 relative">
+                    <div className={`p-6 rounded-3xl border flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${theme === 'dark' ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-200'}`}>
+                        <div>
+                            <div className={`text-xs uppercase tracking-widest opacity-50 mb-1`}>Patient Profile</div>
+                            <div className="text-2xl font-light">{report.patientName}</div>
+                            <div className="flex gap-4 mt-2 text-sm opacity-70">
+                                <span>ID: {report.id?.slice(0,8) || 'PENDING'}</span>
+                                <span>|</span><span>{report.patientAge} yrs</span>
+                                <span>|</span><span>{report.patientWeight} kg</span>
+                                <span>|</span><span>{new Date().toLocaleDateString()}</span>
+                            </div>
+                        </div>
+                        <div className="flex gap-2">
+                             <span className={`px-3 py-1 rounded text-xs font-bold uppercase tracking-widest ${theme === 'dark' ? 'bg-teal-900 text-teal-300' : 'bg-teal-100 text-teal-800'}`}>Verified Analysis</span>
+                        </div>
+                    </div>
+
+                    <div className="grid md:grid-cols-3 gap-6">
+                        <div className={`md:col-span-1 p-6 rounded-3xl border flex flex-col justify-between ${theme === 'dark' ? 'bg-neutral-800 border-neutral-700' : 'bg-white border-neutral-200'}`}>
+                            <div>
+                                <div className="text-xs uppercase tracking-widest opacity-50 mb-4">Enterotype</div>
+                                <div className="text-3xl font-light text-teal-500 mb-2">{data.name.split(':')[1]}</div>
+                                <div className="text-xs opacity-70 leading-relaxed">{data.description}</div>
+                            </div>
+                            <div className="mt-6 pt-6 border-t border-dashed border-current border-opacity-20"><AmberTaxaChart data={data.chartData} theme={theme} /></div>
+                        </div>
+
+                        <div className={`md:col-span-1 p-6 rounded-3xl border ${theme === 'dark' ? 'bg-neutral-800 border-neutral-700' : 'bg-white border-neutral-200'}`}>
+                            <div className="text-xs uppercase tracking-widest opacity-50 mb-4">Diversity Index</div>
+                            <div className="flex items-end gap-2 mb-4"><span className="text-5xl font-light">{report.diversityScore}</span><span className="text-sm opacity-50 mb-1">/ 10.0</span></div>
+                            <div className={`w-full h-2 rounded-full overflow-hidden mb-6 ${theme === 'dark' ? 'bg-neutral-700' : 'bg-neutral-100'}`}>
+                                <div className="h-full bg-gradient-to-r from-red-500 via-yellow-500 to-teal-500" style={{ width: `${(report.diversityScore / 10) * 100}%` }}></div>
+                            </div>
+                            <div className="space-y-2">
+                                {data.biomarkers.map((b, i) => (
+                                    <div key={i} className="flex justify-between text-xs">
+                                        <span className="opacity-70">{b.name}</span>
+                                        <span className={b.status === 'Optimal' || b.status === 'Normal' ? 'text-teal-500' : 'text-orange-500'}>{b.value}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className={`md:col-span-1 p-6 rounded-3xl border flex flex-col ${theme === 'dark' ? 'bg-teal-900/10 border-teal-800' : 'bg-teal-50 border-teal-100'}`}>
+                            <div className="flex items-center gap-2 text-teal-500 font-bold text-xs uppercase tracking-widest mb-4"><Sparkles size={14}/> AI Clinical Insight</div>
+                            <p className={`text-sm leading-relaxed flex-grow ${theme === 'dark' ? 'text-teal-100' : 'text-teal-900'}`}>{report.aiInsight || "Analyzing unique metabolic fingerprint..."}</p>
+                        </div>
+                    </div>
+
+                    <div className={`p-8 rounded-3xl border ${theme === 'dark' ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-200'}`}>
+                        <h4 className="text-xl font-light mb-6">Clinical Context</h4>
+                        <div className="grid md:grid-cols-2 gap-8">
+                            <div className="space-y-4">
+                                <div className="flex justify-between py-3 border-b border-current border-opacity-10"><span className="text-sm opacity-60">Primary Goal</span><span className="text-sm font-medium">{report.goals}</span></div>
+                                <div className="flex justify-between py-3 border-b border-current border-opacity-10"><span className="text-sm opacity-60">Diagnosed Conditions</span><span className="text-sm font-medium">{report.conditions}</span></div>
+                                <div className="flex justify-between py-3 border-b border-current border-opacity-10"><span className="text-sm opacity-60">Allergies / Sensitivities</span><span className="text-sm font-medium text-red-400">{report.allergies}</span></div>
+                            </div>
+                            <div>
+                                <h5 className="text-xs uppercase tracking-widest opacity-50 mb-4 flex items-center gap-2"><AlertCircle size={14}/> Risk Profile</h5>
+                                <div className="grid grid-cols-1 gap-2">
+                                    {data.risks.map((risk, i) => (
+                                        <div key={i} className={`p-3 rounded border flex items-center gap-3 ${theme === 'dark' ? 'bg-red-900/10 border-red-900/30 text-red-200' : 'bg-red-50 border-red-100 text-red-800'}`}>
+                                            <div className="w-1.5 h-1.5 rounded-full bg-red-500"></div><span className="text-sm">{risk}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="grid lg:grid-cols-12 gap-6">
+                        <div className="lg:col-span-8 space-y-6">
+                            <div className={`p-8 rounded-3xl border ${theme === 'dark' ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-200'}`}>
+                                <div className="flex items-center justify-between mb-6">
+                                    <h4 className="text-xl font-light">Nutritional Protocol</h4>
+                                    <span className={`text-xs px-2 py-1 rounded border ${theme === 'dark' ? 'border-teal-500 text-teal-500' : 'border-teal-600 text-teal-600'}`}>{data.mealPlan}</span>
+                                </div>
+                                <div className="grid md:grid-cols-2 gap-8 mb-8">
+                                    <div>
+                                        <h5 className="text-xs font-bold uppercase tracking-widest text-teal-500 mb-4">Therapeutic Focus</h5>
+                                        <ul className="space-y-3">
+                                            {data.recommendations.increase.map((item, i) => (
+                                                <li key={i} className="flex justify-between items-start text-sm pb-2 border-b border-current border-opacity-10">
+                                                    <span>{item.item}</span><span className="opacity-50 text-xs">{item.amount}</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                    <div>
+                                        <h5 className="text-xs font-bold uppercase tracking-widest text-red-400 mb-4">Contraindicated</h5>
+                                        <ul className="space-y-3">
+                                            {data.recommendations.avoid.map((item, i) => (
+                                                <li key={i} className="flex justify-between items-start text-sm pb-2 border-b border-current border-opacity-10">
+                                                    <span>{item.item}</span><span className="opacity-50 text-xs text-right">{item.detail}</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                </div>
+                                <div className={`p-4 rounded-xl flex gap-4 ${theme === 'dark' ? 'bg-teal-900/10' : 'bg-teal-50'}`}>
+                                    <div className="shrink-0 pt-1 text-teal-500"><Leaf size={20}/></div>
+                                    <div>
+                                        <h6 className="font-bold text-xs uppercase tracking-widest mb-1 text-teal-500">Produce Optimization Strategy</h6>
+                                        <p className="text-sm opacity-80 italic">"{data.recommendations.produceStrategy}"</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className={`p-8 rounded-3xl border ${theme === 'dark' ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-200'}`}>
+                                <h4 className="text-xl font-light mb-6">Daily Schedule</h4>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                                    {Object.entries(data.dailyRoutine).map(([time, meal], i) => (
+                                        <div key={i} className={`p-4 rounded-xl border ${theme === 'dark' ? 'border-neutral-800' : 'border-neutral-100'}`}>
+                                            <div className="text-[10px] uppercase tracking-widest opacity-50 mb-1">{time.replace(/([A-Z])/g, ' $1').trim()}</div>
+                                            <div className="text-sm font-medium">{meal}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="lg:col-span-4 space-y-6">
+                            <div className={`p-6 rounded-3xl border ${theme === 'dark' ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-200'}`}>
+                                <h4 className="text-lg font-light mb-4">Lifestyle</h4>
+                                <ul className="space-y-4">
+                                    {data.recommendations.lifestyle.map((l, i) => (
+                                        <li key={i} className="text-sm"><div className="font-medium mb-1">{l.item}</div><div className="text-xs opacity-50">{l.amount} • {l.detail}</div></li>
+                                    ))}
+                                </ul>
+                            </div>
+                            <div className={`p-6 rounded-3xl border ${theme === 'dark' ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-200'}`}>
+                                <h4 className="text-lg font-light mb-4">Supplements</h4>
+                                <ul className="space-y-3">
+                                    {data.recommendations.supplements.map((s, i) => (
+                                        <li key={i} className="flex gap-3 text-sm items-start"><CheckCircle size={14} className="mt-1 text-teal-500 shrink-0"/>
+                                            <div><div className="font-medium">{s.item}</div><div className="text-xs opacity-50">{s.detail}</div></div>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                            <div className={`p-6 rounded-3xl border ${theme === 'dark' ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-200'}`}>
+                                <h4 className="text-lg font-light mb-4">Recipes</h4>
+                                <div className="space-y-4">
+                                    {data.recipes.map((r,i) => (
+                                        <div key={i} className="text-sm pb-3 border-b border-current border-opacity-10 last:border-0"><div className="font-bold">{r.name}</div><div className="text-xs opacity-50 mt-1">{r.time} • {r.ingredients.length} ingredients</div></div>
+                                    ))}
+                                    {loadingRecipe && (
+                                        <div className="py-4 text-center animate-pulse border-t border-dashed border-current border-opacity-10 mt-2">
+                                            <Sparkles size={16} className="mx-auto mb-2 text-teal-500 animate-spin-slow"/><div className="text-xs font-bold uppercase tracking-widest text-teal-500 mb-1">Consulting Chef AI</div><div className="text-[10px] opacity-50">Designing metabolic meal...</div>
+                                        </div>
+                                    )}
+                                    {genRecipe && !loadingRecipe && (
+                                        <div className={`p-4 rounded-xl border mt-2 animate-fadeIn ${theme === 'dark' ? 'bg-teal-900/20 border-teal-800' : 'bg-teal-50 border-teal-100'}`}>
+                                            <div className="flex justify-between items-start mb-2"><div className="font-bold text-sm text-teal-500">{genRecipe.name}</div><div className="text-[10px] opacity-60 bg-teal-500/10 px-2 py-1 rounded">{genRecipe.time}</div></div>
+                                            <p className="text-xs opacity-80 mb-3 italic leading-relaxed">"{genRecipe.instructions}"</p>
+                                            <div>
+                                                <div className="text-[10px] uppercase tracking-widest opacity-50 mb-1">Ingredients</div>
+                                                <div className="flex flex-wrap gap-1">{genRecipe.ingredients.map((ing, i) => (<span key={i} className={`text-[10px] px-2 py-0.5 rounded ${theme === 'dark' ? 'bg-black/40' : 'bg-white/60'}`}>{ing}</span>))}</div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    <button 
+                                        onClick={handleGenRecipe} disabled={loadingRecipe}
+                                        className={`w-full py-2 rounded-full text-xs font-bold uppercase border transition-all active:scale-95 ${theme === 'dark' ? 'border-teal-800 text-teal-500 hover:bg-teal-900' : 'border-teal-100 text-teal-700 hover:bg-teal-50'} ${loadingRecipe ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                    >
+                                        <Sparkles size={12} className={`inline mr-2 ${loadingRecipe ? 'animate-spin' : ''}`}/> 
+                                        {loadingRecipe ? 'Generating...' : (genRecipe ? 'Generate Another' : 'Generate New')}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex justify-end gap-4">
+                        <button onClick={downloadProtocol} className="flex items-center gap-2 px-6 py-3 rounded-full bg-teal-600 text-white text-xs font-bold uppercase tracking-widest hover:bg-teal-500 transition-colors">
+                            <Download size={16}/> Download Full Report
+                        </button>
+                        <button onClick={handleShare} className={`flex items-center gap-2 px-6 py-3 rounded-full border text-xs font-bold uppercase tracking-widest transition-colors ${theme === 'dark' ? 'border-neutral-700 hover:bg-neutral-800' : 'border-neutral-200 hover:bg-neutral-50'}`}>
+                            <Share2 size={16}/> Share
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        const AmberClinicLocator = ({ theme, user, showMessage }) => {
+            const [selected, setSelected] = useState(null);
+            const [date, setDate] = useState('');
+            const [time, setTime] = useState('');
+            const [searchTerm, setSearchTerm] = useState('');
+            const [bookingState, setBookingState] = useState('idle');
+
+            const handleBook = async () => {
+                if(!user) { showMessage('Please login to book', 'error'); return; }
+                if(!selected || !date || !time) { showMessage('Please fill all fields', 'error'); return; }
+                
+                setBookingState('processing');
+                try {
+                    await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'appointments'), {
+                        type: 'Clinic Collection', locationId: selected.id, locationName: selected.name, date, time, timestamp: serverTimestamp()
+                    });
+                    setTimeout(() => {
+                        setBookingState('success');
+                        setTimeout(() => {
+                            setBookingState('idle'); setSelected(null); setDate(''); setTime(''); showMessage('Clinic Booking Confirmed!');
+                        }, 2000);
+                    }, 1500);
+                } catch(e) {
+                    setBookingState('idle'); showMessage('Booking failed', 'error');
+                }
+            };
+
+            const filteredClinics = CLINICS_LIST.filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase()) || c.address.toLowerCase().includes(searchTerm.toLowerCase()));
+
+            return (
+                <div className="max-w-5xl mx-auto pt-12 pb-24 px-6 animate-fadeIn">
+                    <h2 className={`text-4xl font-light mb-12 ${theme === 'dark' ? 'text-white' : 'text-black'}`}>Collection Centers</h2>
+                    <div className="mb-8 flex gap-4">
+                        <div className="flex-1 relative">
+                            <Search className={`absolute left-4 top-1/2 -translate-y-1/2 ${theme === 'dark' ? 'text-neutral-500' : 'text-neutral-400'}`} size={18}/>
+                            <input 
+                                type="text" placeholder="Search nearby clinics..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+                                className={`w-full pl-12 pr-4 py-3 rounded-full outline-none border transition-colors ${theme === 'dark' ? 'bg-neutral-900 border-neutral-800 text-white placeholder-neutral-600 focus:border-teal-500' : 'bg-white border-neutral-200 text-black placeholder-neutral-400 focus:border-teal-500'}`}
+                            />
+                        </div>
+                        <button className={`px-6 py-3 rounded-full border flex items-center gap-2 text-xs uppercase tracking-widest transition-colors ${theme === 'dark' ? 'border-neutral-700 text-white hover:bg-neutral-800' : 'border-neutral-200 text-black hover:bg-neutral-50'}`}>
+                            <Navigation size={14}/> Use My Location
+                        </button>
+                    </div>
+
+                    <div className="grid lg:grid-cols-3 gap-8">
+                        <div className="lg:col-span-2 space-y-4">
+                            {filteredClinics.map((clinic) => (
+                                <div key={clinic.id} onClick={() => setSelected(clinic)} className={`p-6 rounded-3xl cursor-pointer transition-all border ${selected?.id === clinic.id ? 'border-teal-500 shadow-md' : (theme === 'dark' ? 'border-neutral-800 bg-neutral-900 hover:bg-neutral-800' : 'border-neutral-200 bg-white hover:bg-neutral-50 shadow-sm')}`}>
+                                    <div className="flex justify-between items-start">
+                                        <div>
+                                            <h3 className={`text-xl font-light ${theme === 'dark' ? 'text-white' : 'text-black'}`}>{clinic.name}</h3>
+                                            <p className={`text-sm mt-1 ${theme === 'dark' ? 'text-neutral-400' : 'text-neutral-500'}`}>{clinic.address}</p>
+                                            <div className="flex gap-2 mt-4">
+                                                <span className={`text-[10px] uppercase tracking-widest px-2 py-1 rounded ${clinic.available ? 'bg-teal-500/20 text-teal-500' : 'bg-red-500/20 text-red-500'}`}>{clinic.available ? 'Available' : 'Full'}</span>
+                                                <span className={`text-[10px] uppercase tracking-widest px-2 py-1 rounded ${theme === 'dark' ? 'bg-white/10 text-neutral-300' : 'bg-black/5 text-neutral-600'}`}>{clinic.type}</span>
+                                                <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded bg-yellow-500/20 text-yellow-500 flex items-center gap-1"><CheckCircle size={10}/> {clinic.rating}</span>
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <div className={`text-2xl font-light ${theme === 'dark' ? 'text-white' : 'text-black'}`}>{clinic.distance}</div>
+                                            <div className={`text-[10px] uppercase tracking-widest ${theme === 'dark' ? 'text-neutral-500' : 'text-neutral-400'}`}>Distance</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        <div className={`p-8 rounded-3xl h-fit sticky top-24 ${theme === 'dark' ? 'bg-neutral-900 border border-neutral-800' : 'bg-white border border-neutral-200 shadow-lg'}`}>
+                            <h3 className={`text-xl font-light mb-6 ${theme === 'dark' ? 'text-white' : 'text-black'}`}>Booking</h3>
+                            {selected ? (
+                                <div className="space-y-6">
+                                    <div className="pb-4 border-b border-current border-opacity-10">
+                                        <div className={`text-xs uppercase tracking-widest mb-1 ${theme === 'dark' ? 'text-neutral-500' : 'text-neutral-400'}`}>Location</div>
+                                        <div className={`text-lg ${theme === 'dark' ? 'text-white' : 'text-black'}`}>{selected.name}</div>
+                                    </div>
+                                    <AmberInput label="Date" type="date" value={date} onChange={(e) => setDate(e.target.value)} theme={theme} />
+                                    <AmberInput label="Time" type="time" value={time} onChange={(e) => setTime(e.target.value)} theme={theme} />
+                                    <button onClick={handleBook} disabled={bookingState === 'processing' || !selected.available} className={`w-full py-4 rounded-full font-bold text-xs uppercase tracking-widest transition-transform active:scale-95 disabled:opacity-50 ${theme === 'dark' ? 'bg-white text-black hover:bg-neutral-200' : 'bg-black text-white hover:bg-neutral-800'}`}>
+                                        {bookingState === 'processing' ? 'Confirming...' : (bookingState === 'success' ? 'Confirmed' : 'Confirm')}
+                                    </button>
+                                </div>
+                            ) : (<div className="text-center opacity-50 py-12">Select a clinic location to proceed with booking.</div>)}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- Main App Component ---
+        function App() {
+          const [loading, setLoading] = useState(true);
+          const [theme, setTheme] = useState('dark');
+          const [view, setView] = useState('home');
+          const [user, setUser] = useState(null);
+          
+          const [notification, setNotification] = useState(null);
+          const showMessage = (msg, type = 'success') => {
+              setNotification({ msg, type });
+              setTimeout(() => setNotification(null), 3000);
+          };
+
+          const [isSignUp, setIsSignUp] = useState(false);
+          const [email, setEmail] = useState('');
+          const [password, setPassword] = useState('');
+
+          const [patientName, setPatientName] = useState('');
+          const [patientAge, setPatientAge] = useState('');
+          const [patientWeight, setPatientWeight] = useState('');
+          const [patientHeight, setPatientHeight] = useState('');
+          const [conditions, setConditions] = useState('');
+          const [medications, setMedications] = useState('');
+          const [allergies, setAllergies] = useState('');
+          const [goals, setGoals] = useState('');
+          
+          const [activityLevel, setActivityLevel] = useState('');
+          const [eatingHabits, setEatingHabits] = useState('');
+          const [foodPreferences, setFoodPreferences] = useState('');
+          const [budget, setBudget] = useState('');
+          
+          const [clinicalFile, setClinicalFile] = useState(null);
+          const [agreed, setAgreed] = useState(false);
+          
+          const [reports, setReports] = useState([]);
+          const [currentReport, setCurrentReport] = useState(null);
+          
+          const [chatInput, setChatInput] = useState('');
+          const [chatHistory, setChatHistory] = useState([{ role: 'ai', content: 'I am GuTek. How can I assist with your clinical protocol today?' }]);
+          const [aiLoading, setAiLoading] = useState(false);
+
+          const generateDemoData = async () => {
+            if (!user) return;
+            setLoading(true);
+            const demoFiles = ["Clinical_Seq_A102.bam", "Patient_Ref_X99.pdf", "Lab_Results_B44.csv"];
+            const demoNames = ["John Doe", "Alice Smith", "Robert Johnson", "Emily Davis"];
+            const promises = [];
+            
+            for (let i = 0; i < 5; i++) {
+              const keys = Object.keys(ENTEROTYPES);
+              const randomKey = keys[Math.floor(Math.random() * keys.length)];
+              const newReport = {
+                enterotypeKey: randomKey,
+                diversityScore: (Math.random() * (9.5 - 4.0) + 4.0).toFixed(1),
+                fileName: demoFiles[Math.floor(Math.random() * demoFiles.length)],
+                patientName: demoNames[Math.floor(Math.random() * demoNames.length)],
+                patientAge: Math.floor(Math.random() * (75 - 25) + 25),
+                patientWeight: Math.floor(Math.random() * (95 - 55) + 55),
+                patientHeight: Math.floor(Math.random() * (190 - 155) + 155),
+                conditions: "None", medications: "None", allergies: "None",
+                activityLevel: "Moderate", eatingHabits: "Irregular", foodPreferences: "Standard",
+                goals: "Health maintenance", budget: "Moderate",
+                timestamp: serverTimestamp()
+              };
+              promises.push(addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'reports'), newReport));
+            }
+            try { await Promise.all(promises); showMessage('Demo data generated.'); } catch (e) { console.error(e); } finally { setLoading(false); }
+          };
+
+          useEffect(() => {
+            const initAuth = async () => {
+              try {
+                  if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                  } else {
+                    await signInAnonymously(auth);
+                  }
+              } catch (e) { console.error(e); }
+            };
+            initAuth();
+            return onAuthStateChanged(auth, setUser);
+          }, []);
+
+          useEffect(() => {
+            if (!user || !db) return;
+            const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'reports'));
+            const unsubscribe = onSnapshot(q, (snapshot) => {
+              const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+              // Sort memory array to avoid unindexed orderBy errors
+              data.sort((a, b) => {
+                  const ta = a.timestamp?.toMillis ? a.timestamp.toMillis() : 0;
+                  const tb = b.timestamp?.toMillis ? b.timestamp.toMillis() : 0;
+                  return tb - ta;
+              });
+              setReports(data);
+            }, (error) => {
+              console.error("Firestore Error:", error);
+            });
+            return () => unsubscribe();
+          }, [user]);
+
+          const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+
+          const calculateAlgorithm = () => {
+              const dietaryText = (eatingHabits + " " + foodPreferences).toLowerCase();
+              const clinicalText = (conditions + " " + medications + " " + allergies + " " + goals).toLowerCase();
+              const lifestyleText = activityLevel.toLowerCase();
+              
+              let scores = { BACTEROIDES: 0, PREVOTELLA: 0, RUMINOCOCCUS: 0, AKKERMANSIA: 0, PROTEOBACTERIA: 0 };
+              ['veg', 'plant', 'fruit', 'fiber'].forEach(k => { if(dietaryText.includes(k)) scores.PREVOTELLA += 2; });
+              ['meat', 'sugar', 'fast', 'fry'].forEach(k => { if(dietaryText.includes(k)) scores.BACTEROIDES += 2; });
+              ['ibs', 'bloat', 'dairy', 'gluten'].forEach(k => { if(clinicalText.includes(k) || dietaryText.includes(k)) scores.RUMINOCOCCUS += 3; }); 
+              ['fast', 'keto', 'berry', 'weight'].forEach(k => { if(clinicalText.includes(k) || dietaryText.includes(k)) scores.AKKERMANSIA += 3; });
+              ['stress', 'sibo', 'antibiotic', 'sugar'].forEach(k => { if(clinicalText.includes(k) || dietaryText.includes(k)) scores.PROTEOBACTERIA += 3; });
+
+              if (Object.values(scores).every(v => v === 0)) scores.BACTEROIDES = 1; 
+              const enterotypeKey = Object.keys(scores).reduce((a, b) => scores[a] >= scores[b] ? a : b);
+
+              let diversity = 6.5; 
+              if (['gym', 'run', 'sport', 'active'].some(k => lifestyleText.includes(k))) diversity += 1.2;
+              if (['sedentary', 'sit', 'none'].some(k => lifestyleText.includes(k))) diversity -= 1.5;
+              if (enterotypeKey === 'PROTEOBACTERIA') diversity -= 1.5;
+              diversity = Math.min(Math.max(diversity, 1.5), 9.9).toFixed(1);
+
+              return { enterotypeKey, diversity };
+          };
+
+          const handleAnalyze = async () => {
+            if (!patientName || patientName.trim().length < 2) { showMessage('Please enter a valid Patient Name.', 'error'); return; }
+            if (!patientAge || isNaN(Number(patientAge))) { showMessage('Please enter a valid Age.', 'error'); return; }
+            if(!agreed) { showMessage('Compliance agreement is required to proceed.', 'error'); return; }
+            
+            setView('loading_analysis');
+            const { enterotypeKey, diversity } = calculateAlgorithm();
+            const predictedName = ENTEROTYPES[enterotypeKey].name;
+
+            let aiInsight = "AI analysis pending...";
+            try {
+                aiInsight = await callGemini(`Patient Profile: Age ${patientAge}, Weight ${patientWeight}, Condition: ${conditions}. Predicted Enterotype: ${predictedName}. Generate a concise 2-sentence clinical insight.`);
+            } catch(e) { console.error(e); }
+            
+            const newReport = {
+                enterotypeKey, diversityScore: diversity, patientName: patientName || 'Guest',
+                patientAge, patientWeight, patientHeight, conditions, medications, allergies, goals, activityLevel, eatingHabits, foodPreferences, budget, aiInsight, timestamp: serverTimestamp()
+            };
+
+            if(user) await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'reports'), newReport);
+            setCurrentReport({ ...newReport, timestamp: { toDate: () => new Date() }, id: 'NEW' });
+            setView('dashboard');
+          };
+
+          const handleChat = async (e) => {
+              e.preventDefault();
+              if(!chatInput.trim()) return;
+              const newHistory = [...chatHistory, { role: 'user', content: chatInput }];
+              setChatHistory(newHistory); setChatInput(''); setAiLoading(true);
+              const response = await callGemini(chatInput);
+              setChatHistory([...newHistory, { role: 'ai', content: response }]); setAiLoading(false);
+          };
+
+          const handleAuth = async (e) => {
+              e.preventDefault(); setLoading(true);
+              setTimeout(() => { setLoading(false); showMessage(isSignUp ? "Account created!" : "Logged in!"); setView('home'); }, 1500);
+          };
+          
+          const handleExpertBook = async (expert) => {
+              if(!user || user.isAnonymous) { showMessage('Login required', 'error'); return; }
+              try {
+                  await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'appointments'), { type: 'Expert Consult', expertName: expert.name, timestamp: serverTimestamp() });
+                  showMessage('Booking Confirmed for ' + expert.name);
+              } catch(e) { showMessage('Error booking appointment', 'error'); }
+          };
+
+          if (loading) return <AmberLoader onComplete={() => setLoading(false)} />;
+
+          return (
+            <div className={`min-h-screen transition-colors duration-700 font-sans selection:bg-teal-500 selection:text-white ${theme === 'dark' ? 'bg-black text-white' : 'bg-white text-black'}`}>
+              
+              {notification && (
+                <div className={`fixed top-6 left-1/2 -translate-x-1/2 px-6 py-3 rounded-full text-xs font-bold uppercase tracking-widest shadow-2xl z-50 animate-fadeIn transition-colors flex items-center gap-2 ${notification.type === 'error' ? 'bg-red-500 text-white' : 'bg-teal-500 text-white'}`}>
+                    {notification.type === 'success' ? <CheckCircle size={14}/> : <AlertCircle size={14}/>}
+                    {notification.msg}
+                </div>
+              )}
+
+              <AmberNav view={view} setView={setView} theme={theme} user={user} />
+
+              <main className="pt-20">
+                
+                {/* VIEW: HOME */}
+                {view === 'home' && (
+                  <div className="animate-fadeIn">
+                    <section className={`relative h-[85vh] flex flex-col items-center justify-center overflow-hidden transition-colors duration-700 ${theme === 'dark' ? 'bg-neutral-900' : 'bg-neutral-100'}`}>
+                      <div className="absolute inset-0 z-0 opacity-50"><HumanSystem3D theme={theme} /></div>
+                      <div className="z-10 text-center space-y-6 px-4">
+                        <div className="flex items-center justify-center gap-2 mb-4 animate-slideUp">
+                           <span className="h-[1px] w-8 bg-current opacity-50"></span>
+                           <span className="text-xs uppercase tracking-[0.2em] opacity-80">Modern Nutrition</span>
+                           <span className="h-[1px] w-8 bg-current opacity-50"></span>
+                        </div>
+                        <h1 className="text-5xl md:text-7xl font-light tracking-tight leading-tight animate-slideUp delay-100">Where Health<br/>Belongs</h1>
+                        <div className="pt-8 animate-slideUp delay-200">
+                           <button onClick={() => setView('analyze')} className={`px-8 py-3 rounded-full text-sm font-medium tracking-wide transition-all hover:scale-105 ${theme === 'dark' ? 'bg-white text-black hover:bg-neutral-200' : 'bg-black text-white hover:bg-neutral-800'}`}>Explore Analysis</button>
+                        </div>
+                      </div>
+                      <div className="absolute bottom-10 w-full px-10 flex justify-between items-end border-t border-current border-opacity-10 pt-6">
+                         <div><h3 className="text-sm font-medium">System Environment</h3><p className="text-xs opacity-50 mt-1">Designed to adapt quietly to your bio-rhythm</p></div>
+                         <div className="flex items-center gap-3"><span className="text-xs uppercase tracking-widest opacity-60">{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</span><AmberToggle theme={theme} toggle={toggleTheme} /></div>
+                      </div>
+                    </section>
+
+                    <div className={`py-24 px-6 border-t ${theme === 'dark' ? 'border-neutral-800' : 'border-neutral-200'}`}>
+                        <div className="max-w-6xl mx-auto">
+                            <div className="text-center mb-16 animate-slideUp">
+                                <h2 className={`text-3xl font-light mb-4 ${theme === 'dark' ? 'text-white' : 'text-black'}`}>System Process Architecture</h2>
+                                <p className="opacity-50 text-sm">End-to-end clinical data processing pipeline</p>
+                            </div>
+                            <div className="flex flex-col md:flex-row gap-12 md:gap-4 justify-between relative">
+                                 <AmberFlowStep number={1} icon={FilePlus} title="Clinical Intake" desc="Ingestion of bio-metrics, history, and uploaded sequencing data." theme={theme} />
+                                 <AmberFlowStep number={2} icon={Zap} title="NLP Analysis" desc="Natural language processing of lifestyle & dietary patterns." theme={theme} />
+                                 <AmberFlowStep number={3} icon={Dna} title="Genomic Sync" desc="Bioinformatics pipeline aligns metagenomic sequences." theme={theme} />
+                                 <AmberFlowStep number={4} icon={Cpu} title="Predictive Core" desc="Multi-variable algorithm calculates enterotype & risks." theme={theme} />
+                                 <AmberFlowStep number={5} icon={FileText} title="Protocol Synth" desc="Generation of precision therapeutic nutrition plans." theme={theme} last={true} />
+                            </div>
+                        </div>
+                    </div>
+
+                    <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+                       <AmberGridItem title="New Protocol" subtitle="Start a fresh sequence" theme={theme} onClick={() => setView('analyze')} icon={Activity}/>
+                       <AmberGridItem title="Expert Consult" subtitle="Book Specialists" theme={theme} onClick={() => setView('consult')} icon={Calendar}/>
+                       <AmberGridItem title="Patient Records" subtitle="View database history" theme={theme} onClick={() => setView('history')} icon={Database}/>
+                       <AmberGridItem title="Clinic Locator" subtitle="Find collection points" theme={theme} onClick={() => setView('clinics')} icon={MapPin}/>
+                       <AmberGridItem title="Assistant" subtitle="Ask GuTek AI" theme={theme} onClick={() => setView('ask')} icon={Bot}/>
+                       <AmberGridItem title="Research" subtitle="Latest publications" theme={theme} onClick={() => setView('research')} icon={FileText}/>
+                    </section>
+                  </div>
+                )}
+
+                {/* VIEW: LOGIN */}
+                {view === 'login' && (
+                    <div className="min-h-screen flex items-center justify-center px-6 animate-fadeIn">
+                        <div className={`w-full max-w-md p-12 rounded-3xl border ${theme === 'dark' ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-200 shadow-xl'}`}>
+                            <div className="text-center mb-10">
+                                <h2 className={`text-3xl font-light mb-2 ${theme === 'dark' ? 'text-white' : 'text-black'}`}>{isSignUp ? 'Create Account' : 'Welcome Back'}</h2>
+                                <p className="text-sm opacity-50">Secure access to your clinical records</p>
+                            </div>
+                            <form onSubmit={handleAuth} className="space-y-6">
+                                {isSignUp && (<AmberInput label="Full Name" placeholder="John Doe" theme={theme} />)}
+                                <AmberInput label="Email Address" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="doctor@clinic.com" theme={theme} />
+                                <AmberInput label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" theme={theme} />
+                                <button type="submit" className={`w-full py-4 rounded-full font-bold text-xs uppercase tracking-widest transition-transform active:scale-95 ${theme === 'dark' ? 'bg-white text-black hover:bg-neutral-200' : 'bg-black text-white hover:bg-neutral-800'}`}>
+                                    {isSignUp ? 'Sign Up' : 'Sign In'}
+                                </button>
+                            </form>
+                            <div className="mt-8 text-center">
+                                <p className="text-xs opacity-50 mb-4">Or continue with</p>
+                                <div className="flex justify-center gap-4 mb-8">
+                                    <button className={`p-3 rounded-full border ${theme === 'dark' ? 'border-neutral-700 hover:bg-neutral-800' : 'border-neutral-200 hover:bg-neutral-50'}`}><Mail size={18}/></button>
+                                    <button className={`p-3 rounded-full border ${theme === 'dark' ? 'border-neutral-700 hover:bg-neutral-800' : 'border-neutral-200 hover:bg-neutral-50'}`}><ShieldCheck size={18}/></button>
+                                </div>
+                                <button onClick={() => setIsSignUp(!isSignUp)} className={`text-xs font-bold uppercase tracking-widest border-b border-transparent hover:border-current transition-all ${theme === 'dark' ? 'text-white' : 'text-black'}`}>
+                                    {isSignUp ? 'Already have an account? Sign In' : 'New User? Create Account'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* VIEW: CONTACT */}
+                {view === 'contact' && (
+                    <div className="min-h-screen pt-24 pb-12 px-6 animate-fadeIn">
+                        <div className="max-w-4xl mx-auto">
+                            <div className="text-center mb-16">
+                                <h1 className={`text-4xl font-light mb-4 ${theme === 'dark' ? 'text-white' : 'text-black'}`}>Contact Support</h1>
+                                <p className="opacity-50">Technical assistance and clinical inquiries</p>
+                            </div>
+                            <div className="grid md:grid-cols-2 gap-12">
+                                <div className={`p-8 rounded-3xl border space-y-8 ${theme === 'dark' ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-200 shadow-sm'}`}>
+                                    <h3 className="text-xl font-light">Get in touch</h3>
+                                    <form className="space-y-6" onSubmit={(e) => { e.preventDefault(); showMessage('Message sent!'); }}>
+                                        <AmberInput label="Name" placeholder="Dr. Smith" theme={theme} />
+                                        <AmberInput label="Email" type="email" placeholder="contact@example.com" theme={theme} />
+                                        <AmberInput label="Subject" placeholder="Inquiry regarding..." theme={theme} />
+                                        <AmberInput label="Message" type="textarea" placeholder="How can we help?" rows={5} theme={theme} />
+                                        <button type="submit" className={`w-full py-4 rounded-full font-bold text-xs uppercase tracking-widest transition-transform active:scale-95 ${theme === 'dark' ? 'bg-white text-black hover:bg-neutral-200' : 'bg-black text-white hover:bg-neutral-800'}`}>Send Message</button>
+                                    </form>
+                                </div>
+                                <div className="space-y-8">
+                                    <div className={`p-8 rounded-3xl border ${theme === 'dark' ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-200'}`}>
+                                        <h3 className="text-lg font-light mb-6">Headquarters</h3>
+                                        <div className="space-y-4 text-sm opacity-70">
+                                            <div className="flex items-start gap-4"><MapPin className="shrink-0" size={20}/><p>124 Science Park Drive,<br/>Genomics Block A,<br/>Singapore 118224</p></div>
+                                            <div className="flex items-center gap-4"><Mail size={20}/><p>support@gutek-labs.com</p></div>
+                                            <div className="flex items-center gap-4"><Stethoscope size={20}/><p>+65 6789 0123 (Clinical Hotline)</p></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* VIEW: ANALYZE */}
+                {view === 'analyze' && (
+                   <div className="min-h-screen flex flex-col items-center pt-24 pb-12 px-6 animate-fadeIn">
+                      <div className="max-w-4xl w-full space-y-12">
+                         <div className="text-center space-y-2">
+                            <h2 className={`text-3xl font-light ${theme === 'dark' ? 'text-white' : 'text-black'}`}>Start Analysis</h2>
+                            <p className="text-sm opacity-50">Upload biomarkers and define clinical context</p>
+                         </div>
+                         <div className={`p-12 rounded-3xl border ${theme === 'dark' ? 'border-neutral-800 bg-neutral-900' : 'border-neutral-200 bg-white shadow-lg'} space-y-12`}>
+                            <div className="space-y-8">
+                                <div className="grid md:grid-cols-2 gap-8">
+                                    <AmberInput label="Patient Name / ID" value={patientName} onChange={(e) => setPatientName(e.target.value)} theme={theme} placeholder="Full Name" />
+                                    <div className="grid grid-cols-3 gap-4">
+                                        <AmberInput label="Age" value={patientAge} onChange={(e) => setPatientAge(e.target.value)} theme={theme} placeholder="Yrs" type="number" />
+                                        <AmberInput label="Weight (kg)" value={patientWeight} onChange={(e) => setPatientWeight(e.target.value)} theme={theme} placeholder="kg" type="number" />
+                                        <AmberInput label="Height (cm)" value={patientHeight} onChange={(e) => setPatientHeight(e.target.value)} theme={theme} placeholder="cm" type="number" />
+                                    </div>
+                                </div>
+                                <div className="grid md:grid-cols-2 gap-8">
+                                     <AmberInput label="Health Conditions" value={conditions} onChange={(e) => setConditions(e.target.value)} theme={theme} placeholder="e.g. T2D, IBS" />
+                                     <AmberInput label="Medications" value={medications} onChange={(e) => setMedications(e.target.value)} theme={theme} placeholder="Current Rx" />
+                                </div>
+                                <div className="grid md:grid-cols-2 gap-8">
+                                     <AmberInput label="Allergies & Intolerances" value={allergies} onChange={(e) => setAllergies(e.target.value)} theme={theme} placeholder="Gluten, Nuts..." />
+                                </div>
+                            </div>
+
+                            <div className="space-y-8 pt-8 border-t border-current border-opacity-10">
+                                <h4 className={`text-xl font-light flex items-center gap-2 ${theme === 'dark' ? 'text-white' : 'text-black'}`}><Dumbbell size={20} className="opacity-50" /> Lifestyle & Nutritional Profile</h4>
+                                <AmberInput label="Physical Activity Level" value={activityLevel} onChange={(e) => setActivityLevel(e.target.value)} theme={theme} placeholder="e.g. Sedentary, Gym 3x/week" />
+                                <div className="grid md:grid-cols-2 gap-8">
+                                     <AmberInput label="Current Eating Habits" type="textarea" value={eatingHabits} onChange={(e) => setEatingHabits(e.target.value)} theme={theme} placeholder="Meals per day, timing..." />
+                                     <AmberInput label="Food Preferences & Aversions" type="textarea" value={foodPreferences} onChange={(e) => setFoodPreferences(e.target.value)} theme={theme} placeholder="Likes, dislikes, cultural..." />
+                                </div>
+                            </div>
+
+                            <div className="space-y-8 pt-8 border-t border-current border-opacity-10">
+                                <h4 className={`text-xl font-light flex items-center gap-2 ${theme === 'dark' ? 'text-white' : 'text-black'}`}><Target size={20} className="opacity-50" /> Goals & Objectives</h4>
+                                <div className="grid md:grid-cols-2 gap-8">
+                                     <AmberInput label="Specific Health Goals" type="textarea" value={goals} onChange={(e) => setGoals(e.target.value)} theme={theme} placeholder="Weight loss, gut repair..." />
+                                     <AmberInput label="Budget Considerations" value={budget} onChange={(e) => setBudget(e.target.value)} theme={theme} placeholder="Unrestricted, Moderate, Budget-conscious" />
+                                </div>
+                            </div>
+
+                            <div className="relative pt-4">
+                                <label className="text-xs uppercase tracking-wider font-bold opacity-60 mb-2 block">Clinical Data Source (Optional)</label>
+                                <input type="file" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => setClinicalFile(e.target.files[0])} />
+                                <div className={`w-full border-b p-4 flex items-center justify-between ${theme === 'dark' ? 'border-neutral-700 bg-black/20' : 'border-neutral-300 bg-neutral-50'} rounded-t-lg`}>
+                                    <span className={`text-sm ${!clinicalFile && 'opacity-30'}`}>{clinicalFile ? clinicalFile.name : 'Upload PDF / FASTQ / BAM (Optional)'}</span><FilePlus size={20} className="opacity-50" />
+                                </div>
+                            </div>
+
+                            <div className="pt-4 flex items-center gap-3">
+                               <div onClick={() => setAgreed(!agreed)} className={`w-5 h-5 border flex items-center justify-center cursor-pointer transition-colors ${agreed ? (theme === 'dark' ? 'bg-white border-white' : 'bg-black border-black') : 'border-neutral-500'}`}>
+                                  {agreed && <Check size={14} className={theme === 'dark' ? 'text-black' : 'text-white'} />}
+                               </div>
+                               <span className="text-xs opacity-60">I confirm this data is anonymized and compliant with HIPAA regulations.</span>
+                            </div>
+
+                            <button onClick={handleAnalyze} className={`w-full py-5 rounded-full font-bold tracking-widest text-xs uppercase transition-all ${agreed ? (theme === 'dark' ? 'bg-white text-black hover:bg-neutral-200' : 'bg-black text-white hover:bg-neutral-800') : 'opacity-50 cursor-not-allowed bg-neutral-500 text-white'}`}>
+                               Generate Protocol
+                            </button>
+                         </div>
+                      </div>
+                   </div>
+                )}
+                
+                {/* LOADING VIEW FOR ANALYSIS */}
+                {view === 'loading_analysis' && (
+                    <div className="min-h-[80vh] flex flex-col items-center justify-center animate-fadeIn">
+                        <Dna size={48} className="text-teal-500 animate-spin-slow mb-6" />
+                        <h2 className={`text-2xl font-light mb-2 ${theme === 'dark' ? 'text-white' : 'text-black'}`}>Synthesizing Protocol</h2>
+                        <p className="opacity-50 text-sm">Processing metagenomic inferences...</p>
+                    </div>
+                )}
+
+                {/* VIEW: DASHBOARD / REPORT */}
+                {view === 'dashboard' && currentReport && (
+                   <div className="animate-fadeIn pb-24">
+                      <div className={`h-[50vh] w-full relative flex items-center justify-center ${theme === 'dark' ? 'bg-neutral-900' : 'bg-neutral-100'}`}>
+                         <div className="text-center space-y-4 z-10">
+                            <span className="px-3 py-1 rounded-full border border-current text-xs uppercase tracking-widest opacity-60">Result</span>
+                            <h1 className="text-4xl md:text-6xl font-light">{ENTEROTYPES[currentReport.enterotypeKey].name.split(':')[0]}</h1>
+                            <p className={`text-2xl font-medium tracking-wide ${theme === 'dark' ? 'text-teal-400' : 'text-teal-600'}`}>{ENTEROTYPES[currentReport.enterotypeKey].name.split(':')[1]}</p>
+                         </div>
+                         <div className="absolute inset-0 opacity-20 pointer-events-none"><HumanSystem3D theme={theme} /></div>
+                      </div>
+                      <div className="max-w-6xl mx-auto px-6 -mt-20 relative z-20">
+                         <div className={`rounded-3xl p-8 md:p-12 shadow-2xl space-y-12 ${theme === 'dark' ? 'bg-neutral-900 border border-neutral-800' : 'bg-white border border-neutral-100'}`}>
+                            <div className="grid grid-cols-2 md:grid-cols-5 gap-8 border-b border-current border-opacity-10 pb-12">
+                               <div><div className="text-xs uppercase tracking-widest opacity-50 mb-2">Diversity</div><div className="text-3xl font-light">{currentReport.diversityScore}</div></div>
+                               <div><div className="text-xs uppercase tracking-widest opacity-50 mb-2">Patient</div><div className="text-xl font-light truncate">{currentReport.patientName}</div></div>
+                               <div><div className="text-xs uppercase tracking-widest opacity-50 mb-2">Age</div><div className="text-xl font-light">{currentReport.patientAge || 'N/A'}</div></div>
+                               <div><div className="text-xs uppercase tracking-widest opacity-50 mb-2">Weight</div><div className="text-xl font-light">{currentReport.patientWeight || 'N/A'}</div></div>
+                               <div><div className="text-xs uppercase tracking-widest opacity-50 mb-2">Status</div><div className="text-xl font-light text-teal-500">Verified</div></div>
+                            </div>
+                            <AmberReportDetail report={currentReport} theme={theme} showMessage={showMessage} />
+                         </div>
+                      </div>
+                   </div>
+                )}
+                
+                {/* VIEW: CONSULT */}
+                {view === 'consult' && (
+                     <div className="max-w-5xl mx-auto pt-12 pb-24 px-6 animate-fadeIn">
+                        <h2 className={`text-4xl font-light mb-12 ${theme === 'dark' ? 'text-white' : 'text-black'}`}>Expert Consultation</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {EXPERTS_LIST.map((expert) => (
+                                <div key={expert.id} className={`p-6 rounded-3xl flex flex-col gap-4 border ${theme === 'dark' ? 'border-neutral-800 bg-neutral-900' : 'border-neutral-200 bg-white shadow-sm'}`}>
+                                    <div className="flex items-center gap-4">
+                                        <img src={expert.image} className="w-16 h-16 rounded-full object-cover grayscale opacity-80" />
+                                        <div><h3 className="text-lg font-light">{expert.name}</h3><p className="text-xs opacity-50">{expert.role}</p></div>
+                                    </div>
+                                    <div className="mt-auto pt-4 border-t border-current border-opacity-10">
+                                        <p className="text-xs uppercase tracking-widest opacity-50 mb-4">{expert.speciality}</p>
+                                        <button onClick={() => handleExpertBook(expert)} className={`w-full py-3 rounded-full text-xs font-bold uppercase tracking-widest transition-transform active:scale-95 ${theme === 'dark' ? 'bg-white/10 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10'}`}>Book Session</button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* VIEW: CLINICS */}
+                {view === 'clinics' && <AmberClinicLocator theme={theme} user={user} showMessage={showMessage} />}
+
+                {/* VIEW: ASK */}
+                {view === 'ask' && (
+                     <div className="max-w-3xl mx-auto pt-12 pb-24 px-6 animate-fadeIn h-[calc(100vh-80px)] flex flex-col">
+                        <h2 className={`text-4xl font-light mb-8 ${theme === 'dark' ? 'text-white' : 'text-black'}`}>GuTek Assistant</h2>
+                        <div className={`flex-1 rounded-3xl p-6 mb-6 overflow-y-auto space-y-6 ${theme === 'dark' ? 'bg-neutral-900 border border-neutral-800' : 'bg-white border border-neutral-200 shadow-sm'}`}>
+                             {chatHistory.map((msg, i) => (
+                                 <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                     <div className={`max-w-[80%] p-4 rounded-2xl ${msg.role === 'user' ? (theme === 'dark' ? 'bg-white text-black' : 'bg-black text-white') : (theme === 'dark' ? 'bg-neutral-800' : 'bg-neutral-100')}`}>
+                                         <p className="text-sm">{msg.content}</p>
+                                     </div>
+                                 </div>
+                             ))}
+                             {aiLoading && <div className="text-center opacity-50 text-xs animate-pulse">Thinking...</div>}
+                        </div>
+                        <form onSubmit={handleChat} className="relative">
+                            <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="Inquire about protocols..." disabled={aiLoading} className={`w-full p-4 pr-16 rounded-full outline-none border ${theme === 'dark' ? 'bg-neutral-900 border-neutral-800 focus:border-white' : 'bg-white border-neutral-200 focus:border-black'}`} />
+                            <button type="submit" disabled={aiLoading || !chatInput} className="absolute right-2 top-2 p-2 rounded-full bg-teal-500 text-white disabled:opacity-50"><ArrowRight size={20}/></button>
+                        </form>
+                    </div>
+                )}
+
+                {/* VIEW: RESEARCH */}
+                {view === 'research' && (
+                   <div className="max-w-6xl mx-auto pt-12 pb-24 px-6 animate-fadeIn">
+                      <div className="text-center mb-16"><h1 className={`text-4xl font-light mb-4 ${theme === 'dark' ? 'text-white' : 'text-black'}`}>Research & Clinical Trials</h1><p className="opacity-50">Latest peer-reviewed publications from the GuTek Network</p></div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                          {RESEARCH_PAPERS.map((paper) => (
+                              <div key={paper.id} onClick={() => showMessage(`Opening PDF access for: ${paper.title}`)} className={`p-8 rounded-3xl border transition-all hover:-translate-y-2 group cursor-pointer flex flex-col justify-between ${theme === 'dark' ? 'bg-neutral-900 border-neutral-800 hover:border-teal-500' : 'bg-white border-neutral-200 shadow-sm hover:shadow-md'}`}>
+                                  <div>
+                                      <div className="flex justify-between items-start mb-6"><span className="text-[10px] uppercase tracking-widest px-3 py-1 rounded-full border border-current opacity-60">{paper.journal}</span><span className="text-xs opacity-50">{paper.date}</span></div>
+                                      <h3 className={`text-2xl font-light mb-4 leading-tight group-hover:text-teal-500 transition-colors ${theme === 'dark' ? 'text-white' : 'text-black'}`}>{paper.title}</h3>
+                                      <p className={`text-sm opacity-60 mb-6 leading-relaxed ${theme === 'dark' ? 'text-neutral-300' : 'text-neutral-600'}`}>{paper.abstract}</p>
+                                  </div>
+                                  <div>
+                                      <div className="flex justify-between items-end border-t border-current border-opacity-10 pt-6">
+                                          <div className="flex flex-col gap-1"><span className="text-[10px] uppercase tracking-widest opacity-50">Authors</span><span className="text-xs font-medium">{paper.authors}</span></div>
+                                          <button className="p-3 rounded-full bg-teal-500 text-white opacity-0 group-hover:opacity-100 transition-opacity transform translate-x-4 group-hover:translate-x-0 duration-300"><ArrowRight size={16} /></button>
+                                      </div>
+                                      <div className="flex gap-2 mt-6 flex-wrap">
+                                          {paper.tags.map((tag, i) => (<span key={i} className={`text-[10px] uppercase tracking-wide px-2 py-1 rounded ${theme === 'dark' ? 'bg-white/5 text-neutral-400' : 'bg-black/5 text-neutral-600'}`}>#{tag}</span>))}
+                                      </div>
+                                  </div>
+                              </div>
+                          ))}
+                      </div>
+                   </div>
+                )}
+
+                {/* VIEW: HISTORY */}
+                {view === 'history' && (
+                   <div className="max-w-[1400px] mx-auto pt-12 px-6 animate-fadeIn">
+                      <div className="flex flex-col md:flex-row justify-between items-end mb-12 gap-4">
+                          <h1 className={`text-4xl font-light ${theme === 'dark' ? 'text-white' : 'text-black'}`}>Patient Database</h1>
+                          <button onClick={generateDemoData} className={`px-6 py-3 text-xs font-bold uppercase tracking-widest border rounded-full transition-all hover:scale-105 ${theme === 'dark' ? 'border-neutral-800 text-neutral-400 hover:text-white hover:border-white' : 'border-neutral-300 text-neutral-500 hover:text-black hover:border-black'}`}>+ Generate Demo Data</button>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                         {reports.map((report) => (
+                            <div key={report.id} onClick={() => { setCurrentReport(report); setView('dashboard'); }} className={`aspect-[4/5] p-6 flex flex-col justify-between cursor-pointer transition-all hover:-translate-y-2 ${theme === 'dark' ? 'bg-neutral-900 hover:bg-neutral-800' : 'bg-neutral-100 hover:bg-neutral-200'}`}>
+                               <div className="space-y-2">
+                                  <span className="text-xs uppercase tracking-widest opacity-50">{report.timestamp?.toDate ? report.timestamp.toDate().toLocaleDateString() : 'Just now'}</span>
+                                  <h3 className="text-xl">{report.patientName}</h3>
+                               </div>
+                               <div>
+                                  <div className="text-3xl font-light mb-1">{report.diversityScore}</div><div className="text-xs uppercase tracking-widest opacity-50">Diversity Index</div>
+                               </div>
+                               <div className="pt-4 border-t border-current border-opacity-10 flex justify-between items-end">
+                                  <span className="text-sm opacity-70">{ENTEROTYPES[report.enterotypeKey]?.name.split(':')[0]}</span><ArrowRight size={16} />
+                               </div>
+                            </div>
+                         ))}
+                         {reports.length === 0 && <div className="col-span-full py-24 text-center opacity-50"><Database size={48} className="mx-auto mb-4" /><p>No records found.</p></div>}
+                      </div>
+                   </div>
+                )}
+              </main>
+
+              <style>{`
+                .delay-100 { animation-delay: 100ms; }
+                .delay-200 { animation-delay: 200ms; }
+                .animate-spin-slow { animation: spin 3s linear infinite; }
+                @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+                .animate-fadeIn { animation: fadeIn 1s ease-out forwards; }
+                @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+                .animate-slideUp { animation: slideUp 0.8s ease-out forwards; }
+              `}</style>
+            </div>
+          );
+        }
+
+        export default App;
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
